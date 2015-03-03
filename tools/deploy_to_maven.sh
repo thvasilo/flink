@@ -27,9 +27,7 @@
 # 4. deploy snapshot and s3 (hadoop2 - 2.2.0)
 # 5. Nothing (hadoop2 - 2.5.1)
 
-# Changes (since travis changed the id assignment)
-# switched 2. with 3.
-# switched 5. with 6.
+
 
 echo "install lifecylce mapping fake plugin"
 git clone https://github.com/mfriedenhagen/dummy-lifecycle-mapping-plugin.git
