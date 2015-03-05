@@ -45,8 +45,10 @@ function getVersion() {
 	fi
 	flink_home="`dirname \"$here\"`"
 	cd $flink_home
-	echo `mvn org.apache.maven.plugins:maven-help-plugin:2.1.1:evaluate -Dexpression=project.version|grep -Ev '(^\[|Download\w+:)'`
+	echo `mvn org.apache.maven.plugins:maven-help-plugin:2.1.1:evaluate -Dexpression=project.version | grep -E '^([0-9]+.[0-9]+(.[0-9]+)?(-[a-zA-Z0-9]+)?)$'`
 }
+
+pwd
 
 # this will take a while
 CURRENT_FLINK_VERSION=`getVersion`
@@ -57,6 +59,12 @@ else
 fi
 
 echo "detected current version as: '$CURRENT_FLINK_VERSION' ; hadoop1: $CURRENT_FLINK_VERSION_HADOOP1 "
+
+echo "the output ==================== "
+pwd
+mvn org.apache.maven.plugins:maven-help-plugin:2.1.1:evaluate -Dexpression=project.version
+echo "end of the output ============= "
+
 
 # Check if push/commit is eligible for pushing
 echo "Job: $TRAVIS_JOB_NUMBER ; isPR: $TRAVIS_PULL_REQUEST"
