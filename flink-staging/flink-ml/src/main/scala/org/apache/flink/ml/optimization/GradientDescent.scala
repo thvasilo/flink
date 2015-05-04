@@ -73,12 +73,12 @@ class GradientDescent(runParameters: ParameterMap) extends IterativeSolver {
       new GradientCalculation
     }.withBroadcastSet(currentWeights, WEIGHTVECTOR_BROADCAST).reduce {
       (left, right) =>
-        val (leftGradtVector, leftCount) = left
+        val (leftGradVector, leftCount) = left
         val (rightGradVector, rightCount) = right
 
-        BLAS.axpy(1.0, leftGradtVector.weights, rightGradVector.weights)
+        BLAS.axpy(1.0, leftGradVector.weights, rightGradVector.weights)
         val gradients = WeightVector(
-          rightGradVector.weights, leftGradtVector.intercept + rightGradVector.intercept)
+          rightGradVector.weights, leftGradVector.intercept + rightGradVector.intercept)
 
         (gradients , leftCount + rightCount)
     }.map {

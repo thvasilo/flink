@@ -144,7 +144,7 @@ class GradientDescentITSuite extends FlatSpec with Matchers with FlinkTestBase {
     val parameters = ParameterMap()
 
     parameters.add(IterativeSolver.Stepsize, 0.0001)
-    parameters.add(IterativeSolver.Iterations, 100)
+    parameters.add(IterativeSolver.Iterations, 400)
     parameters.add(Solver.LossFunction, new SquaredLoss)
     parameters.add(Solver.RegularizationType, new NoRegularization)
     parameters.add(Solver.RegularizationParameter, 0.0)
@@ -165,9 +165,9 @@ class GradientDescentITSuite extends FlatSpec with Matchers with FlinkTestBase {
 
     expectedNoInterceptWeights zip weights foreach {
       case (expectedWeight, weight) =>
-        weight should be (expectedWeight +- 1)
+        weight should be (expectedWeight +- 0.1)
     }
-    weight0 should be (expectedNoInterceptWeight0 +- 0.4)
+    weight0 should be (expectedNoInterceptWeight0 +- 0.1)
   }
 
   it should "correctly perform one step of the algorithm with initial weights provided" in {

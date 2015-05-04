@@ -41,6 +41,23 @@ abstract class Solver extends Serializable with WithParameters {
   // TODO(tvas): Maybe we want to pass a WeightVector directly here, instead of a
   // DataSet[WeightVector]
 
+  /** Creates initial weights vector, creating a DataSet with a WeightVector element
+    *
+    * @param initWeights An Option that may contain an initial set of weights
+    * @param data The data for which we optimize the weights
+    * @return A DataSet containing a single WeightVector element
+    */
+  def createInitialWeightsDS(initWeights: Option[DataSet[WeightVector]],
+                             data: DataSet[LabeledVector]):  DataSet[WeightVector] = {
+
+    val dimensionsDS = data.map(_.vector.size).reduce((a, b) => b)
+
+    initWeights match {
+      case Some(x) => x
+      case None => createInitialWeightVector(dimensionsDS)
+    }
+  }
+
   /** Creates a DataSet with one zero vector. The zero vector has dimension d, which is given
     * by the dimensionDS.
     *
@@ -57,6 +74,7 @@ abstract class Solver extends Serializable with WithParameters {
   }
 
   //Setters for parameters
+  // TODO(tvas): Provide an option to fit an intercept or not
   def setLossFunction(lossFunction: LossFunction): Solver = {
     parameters.add(LossFunction, lossFunction)
     this
@@ -106,14 +124,10 @@ abstract class IterativeSolver extends Solver {
     this
   }
 
-  //  def setConvergenceThreshold(convergenceThreshold: Double): GradientDescent = {
-  //    parameters.add(ConvergenceThreshold, convergenceThreshold)
-  //    this
-  //  }
-
-  //  case object ConvergenceThreshold extends Parameter[Double] {
-  //    val defaultValue = None
-  //  }
+  def setConvergenceThreshold(convergenceThreshold: Double): IterativeSolver = {
+    parameters.add(ConvergenceThreshold, convergenceThreshold)
+    this
+  }
 }
 
 object IterativeSolver {
@@ -127,5 +141,9 @@ object IterativeSolver {
 
   case object Iterations extends Parameter[Int] {
     val defaultValue = Some(10)
+  }
+
+  case object ConvergenceThreshold extends Parameter[Double] {
+    val defaultValue = None
   }
 }
