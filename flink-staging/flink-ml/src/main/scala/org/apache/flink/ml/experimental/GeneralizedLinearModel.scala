@@ -25,11 +25,13 @@ import org.apache.flink.ml.common.{Parameter, WeightVector, ParameterMap, Labele
 import org.apache.flink.ml.math._
 import org.apache.flink.ml.optimization._
 import org.apache.flink.ml.experimental.GeneralizedLinearModel._
+import org.apache.flink.ml.pipeline.{FitOperation, PredictOperation, Predictor}
 
 // Should the initialWeightsOption be an argument or a class variable that gets initialized some other way?
-abstract class GeneralizedLinearModel(initialWeightsOption: Option[DataSet[WeightVector]],
-                                      solverOption: Option[Solver]) extends
-Predictor[GeneralizedLinearModel] {
+abstract class GeneralizedLinearModel(
+  initialWeightsOption: Option[DataSet[WeightVector]],
+  solverOption: Option[Solver])
+  extends Predictor[GeneralizedLinearModel] {
 
   protected var solver: Solver = solverOption.getOrElse(GradientDescent())
 
@@ -45,30 +47,23 @@ Predictor[GeneralizedLinearModel] {
     solver.createInitialWeightsDS(initialWeights, input)
   }
 
-  def setSolverType(solverName: String): GeneralizedLinearModel = {
-    // Preserve parameters when a new solver is set (?)
-    val oldParams = solver.parameters
+  def setSolverType(solverName: String): this.type = {
     solver = solverName match {
       case "sgd" => GradientDescent()
-      case s => {
+      case s =>
         println(s"Solver $s is not implemented, solver is still ${solver.toString}")
         println("Supported solvers: \"sgd\": Stochastic gradient descent")
         solver
-      }
     }
-    // We might run into problems with the parameters if we move from an IterativeSolver to a
-    // regular Solver. i.e. How can we ensure compatibility between Solver parameters?
-    // Simple solution is to disregard old parameters and instruct user to reset them.
-    solver.parameters = oldParams
     this
   }
 
-  def setRegularizationValueParameter(regParam: Double) : GeneralizedLinearModel = {
+  def setRegularizationValueParameter(regParam: Double) : this.type = {
     solver.setRegularizationParameter(regParam)
     this
   }
 
-  def setIterations(iterations: Int) : GeneralizedLinearModel = {
+  def setIterations(iterations: Int) : this.type = {
     solver match {
       case its: IterativeSolver => its.setIterations(iterations)
       //TODO(tvas): Put this warning in the logger, also have name of solver instead of toString?
@@ -77,7 +72,7 @@ Predictor[GeneralizedLinearModel] {
     this
   }
 
-  def setStepsize(stepsize: Double) : GeneralizedLinearModel = {
+  def setStepsize(stepsize: Double) : this.type = {
     solver match {
       case its: IterativeSolver => its.setStepsize(stepsize)
       case s => println(s"Solver ${s.toString} is not an iterative solver.")
@@ -87,7 +82,7 @@ Predictor[GeneralizedLinearModel] {
 
   // TODO(tvas): I would like these to return the run-time type of the GLM, how could I do that?
   // I guess using a TypeTag and return asInstance of implicitly[TypeTag[Self]] could work
-  def setConvergenceThreshold(convergenceThreshold: Double) : GeneralizedLinearModel = {
+  def setConvergenceThreshold(convergenceThreshold: Double) : this.type = {
     solver match {
       case its: IterativeSolver => its.setConvergenceThreshold(convergenceThreshold)
       case s => println(s"Solver ${s.toString} is not an iterative solver.")
@@ -128,7 +123,6 @@ object GeneralizedLinearModel {
 
     var weightVector: WeightVector = null
 
-
     @throws(classOf[Exception])
     override def open(configuration: Configuration): Unit = {
       val list = this.getRuntimeContext.
@@ -138,9 +132,7 @@ object GeneralizedLinearModel {
     }
 
     override def map(example: V): LabeledVector = {
-
       val prediction = pointDecisionFunction(example, weightVector)
-
       LabeledVector(prediction, example)
     }
   }
@@ -155,6 +147,7 @@ object GeneralizedLinearModel {
                         instance: GeneralizedLinearModel,
                         parameters: ParameterMap,
                         input: DataSet[LabeledVector]): Unit = {
+        // TODO(tvas): How do we handle the run parameters here?
         val instanceSolver = instance.solver
         instance.weightVectorDS = instance.createInitialWeightsDS(instance.getInitWeights, input)
         instance.weightVectorDS = instanceSolver.optimize(input, Some(instance.weightVectorDS))
@@ -164,14 +157,16 @@ object GeneralizedLinearModel {
 
 /** Trait for GLMs for which we can choose the type of regularization **/
 trait RegularizationOption extends GeneralizedLinearModel{
-  def setRegularizationType(regularizationType: Regularization): RegularizationOption = {
+  def setRegularizationType(regularizationType: Regularization): this.type = {
     solver.setRegularizationType(regularizationType)
     this
   }
 }
 
-class LinearRegression(initialWeightsOption: Option[DataSet[WeightVector]], solverOption: Option[Solver]) extends
-GeneralizedLinearModel(initialWeightsOption, solverOption) with RegularizationOption{
+class LinearRegression(
+  initialWeightsOption: Option[DataSet[WeightVector]],
+  solverOption: Option[Solver])
+  extends GeneralizedLinearModel(initialWeightsOption, solverOption) with RegularizationOption{
   solver
     .setLossFunction(SquaredLoss())
 }
@@ -182,7 +177,9 @@ object LinearRegression {
   }
 }
 
-class RidgeRegression(initialWeightsOption: Option[DataSet[WeightVector]], solverOption: Option[Solver])
+class RidgeRegression(
+  initialWeightsOption: Option[DataSet[WeightVector]],
+  solverOption: Option[Solver])
   extends GeneralizedLinearModel(initialWeightsOption, solverOption) {
 
   solver
