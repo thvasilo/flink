@@ -229,7 +229,6 @@ object ArtificialNeuralNetwork {
         val initialWeightsDS = instance.optimizer
           .createInitialWeightsDS(None, data)
           .map(wv => initialRandomWeights)
-        val initialWSeq = initialWeightsDS.collect().head
         val optimizedWeights = instance
           .optimizer.optimize(data, Some(initialWeightsDS)).collect().head
         instance.weightsOption = Some(optimizedWeights)
