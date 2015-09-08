@@ -17,21 +17,23 @@
  */
 package org.apache.flink.ml.optimization
 
-import breeze.linalg.DenseVector
 import org.apache.flink.api.common.functions.RichMapFunction
-import org.apache.flink.api.scala.DataSet
+import org.apache.flink.api.java.aggregation.Aggregations
+import org.apache.flink.api.scala._
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.ml.common.FlinkMLTools.ModuloKeyPartitioner
 import org.apache.flink.ml.common._
+
+import org.apache.flink.api.scala.DataSetUtils.utilsToDataSet
+
 import org.apache.flink.ml.math.DenseVector
 import org.apache.flink.ml.math.{SparseVector, DenseVector}
 import org.apache.flink.ml.optimization.IterativeSolver.{LearningRate, ConvergenceThreshold, Iterations}
 import org.apache.flink.ml.optimization.Solver.{RegularizationConstant, LossFunction}
 import breeze.linalg.{Vector => BreezeVector, DenseVector => BreezeDenseVector}
+
 import org.apache.flink.ml.math.Breeze._
 
-import scala.collection.mutable.ArrayBuffer
-import scala.util.Random
 
 class ADMM extends IterativeSolver {
 
@@ -54,66 +56,76 @@ class ADMM extends IterativeSolver {
     val learningRate = parameters(LearningRate)
     val regularizationConstant = parameters(RegularizationConstant)
 
-
     // Check if the number of blocks/partitions has been specified
     val blocks = parameters.get(Blocks) match {
       case Some(value) => value
       case None => data.getParallelism
     }
 
-    // Initialize weights
-    val initialWeightsADMM: DataSet[ADMMWeights] = createInitialWeightsADMM(data)
-
-    val blockedInputAndWeightsDS: DataSet[(Block[LabeledVector], ADMMWeights)] = FlinkMLTools
+    val blockedInputDS = FlinkMLTools
       .block(data, blocks, Some(ModuloKeyPartitioner))
-      .crossWithTiny(initialWeightsADMM)
-      .map(x => x)
+      .zipWithUniqueId
 
+    // TODO: Faster way to do this?
+    val dimensionDS = data.map(_.vector.size).reduce((a, b) => b)
 
-    val resultingDataAndWeights = blockedInputAndWeightsDS.iterate(numberOfIterations) {
-      blockedInputAndWeightsDS => {
+    val dimension = dimensionDS.collect().head
 
-        // Update values for uVector and xVector
-        val updatedLocalWeights = blockedInputAndWeightsDS.map {
-          blockedInputAndWeights => {
-            val inputBlock: Block[LabeledVector] = blockedInputAndWeights._1
-            val admmWeights: ADMMWeights = blockedInputAndWeights._2
-            localUpdate(admmWeights, inputBlock)
+    val values = Array.fill(dimension)(0.0)
+    val wv = new WeightVector(DenseVector(values), 0.0)
+    //TODO: Do I need to create a deep copy of wv here?
+    val initialAdmmWeights = ADMMWeights(wv, wv, wv)
+
+    val blockedWeights = blockedInputDS.map(x => (x._1, initialAdmmWeights))
+
+    val resultingWeights = blockedWeights.iterate(numberOfIterations) {
+      blockedWeights => {
+        // Update the weights locally
+        val updatedLocalWeights = blockedWeights
+          .coGroup(blockedInputDS).where(0).equalTo(0) {
+          (weightsIt, dataIt) => {
+            val weightsTuple = weightsIt.next()
+            val id = weightsTuple._1
+            val currentWeights = weightsTuple._2
+            val dataBlock = dataIt.next()._2
+            (id, localUpdate(currentWeights, dataBlock))
           }
         }
 
         // Sum zVector
         // TODO: Zvector needs to be scaled
-        val updatedZvector = updatedLocalWeights.reduce{
+        val updatedZvector = updatedLocalWeights
+          .map(weightsWithID => weightsWithID._2)
+          .reduce{
           (left, right) => {
-            val weightSum = left.xVector.weights.asBreeze + left.uVector.weights.asBreeze
-            val interceptSum = left.xVector.intercept + left.uVector.intercept
-            val sumWv = WeightVector(weightSum.fromBreeze, interceptSum)
-            ADMMWeights(left.xVector, left.uVector, sumWv)}
+            // Sum u + x for left and right and then sum them together
+            val weightLeftSum = left.xVector.weights.asBreeze + left.uVector.weights.asBreeze
+            val weightRightSum = right.xVector.weights.asBreeze + right.uVector.weights.asBreeze
+            val weightSum = weightLeftSum + weightRightSum
+
+            val interceptLeftSum = left.xVector.intercept + left.uVector.intercept
+            val interceptRightSum = right.xVector.intercept + right.uVector.intercept
+            val interceptSum = interceptLeftSum + interceptRightSum
+
+            val sumVector = WeightVector(weightSum.fromBreeze, interceptSum)
+            left.copy(zVector = sumVector)}
         }
 
         // Broadcast the updated value of zVector
         val updatedWeights = updatedLocalWeights.crossWithTiny(updatedZvector).map{
           weightsTuple => {
-            val weightsOldZ = weightsTuple._1
-            val weightsNewZ = weightsTuple._2
-            weightsOldZ.copy(zVector = weightsNewZ.zVector)
+            val id = weightsTuple._1._1
+            val weightsWithOldZ = weightsTuple._1._2
+            val weightsWithNewZ = weightsTuple._2
+            (id, weightsWithOldZ.copy(zVector = weightsWithNewZ.zVector))
           }
         }
 
-        // Replace old weights with new weights at each block
-        blockedInputAndWeightsDS
-          .crossWithTiny(updatedWeights)
-          .map{dataAndWeights => {
-            val dataBlock = dataAndWeights._1._1
-            val newWeights = dataAndWeights._2
-            (dataBlock, newWeights)
-          }
-        }
+        updatedWeights
       }
     }
 
-    resultingDataAndWeights.first(1).map(x => x._2.xVector)
+    resultingWeights.first(1).map(x => x._2.xVector)
   }
 
   private def localUpdate(admmWeights: ADMMWeights, inputBlock: Block[LabeledVector])
