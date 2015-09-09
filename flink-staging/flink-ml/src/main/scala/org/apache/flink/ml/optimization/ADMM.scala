@@ -23,6 +23,7 @@ import org.apache.flink.api.scala._
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.ml.common.FlinkMLTools.ModuloKeyPartitioner
 import org.apache.flink.ml.common._
+import org.apache.flink.ml._
 
 import org.apache.flink.api.scala.DataSetUtils.utilsToDataSet
 
@@ -95,9 +96,12 @@ class ADMM extends IterativeSolver {
         // Sum zVector
         // TODO: Zvector needs to be scaled
         val updatedZvector = updatedLocalWeights
-          .map(weightsWithID => weightsWithID._2)
-          .reduce{
-          (left, right) => {
+//          .map(weightsWithID => weightsWithID._2) // Remove the ID
+          .reduce {
+          (leftTuple, rightTuple) => {
+            // We ignore the ID, this way we save the map operation above
+            val left = leftTuple._2
+            val right = rightTuple._2
             // Sum u + x for left and right and then sum them together
             val weightLeftSum = left.xVector.weights.asBreeze + left.uVector.weights.asBreeze
             val weightRightSum = right.xVector.weights.asBreeze + right.uVector.weights.asBreeze
@@ -108,16 +112,14 @@ class ADMM extends IterativeSolver {
             val interceptSum = interceptLeftSum + interceptRightSum
 
             val sumVector = WeightVector(weightSum.fromBreeze, interceptSum)
-            left.copy(zVector = sumVector)}
+            (0L, left.copy(zVector = sumVector))}
         }
 
         // Broadcast the updated value of zVector
-        val updatedWeights = updatedLocalWeights.crossWithTiny(updatedZvector).map{
-          weightsTuple => {
-            val id = weightsTuple._1._1
-            val weightsWithOldZ = weightsTuple._1._2
-            val weightsWithNewZ = weightsTuple._2
-            (id, weightsWithOldZ.copy(zVector = weightsWithNewZ.zVector))
+        val updatedWeights = updatedLocalWeights.mapWithBcVariable(updatedZvector) {
+          (weightsWithOldZTuple, weightsWithNewZTuple ) => {
+            val id = weightsWithOldZTuple._1
+            (id, weightsWithOldZTuple._2.copy(zVector = weightsWithNewZTuple._2.zVector))
           }
         }
 
